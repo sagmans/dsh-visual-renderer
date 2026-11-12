@@ -1,6 +1,4 @@
 /**
- * Host half of the transcript visual renderer.
- *
  * The browser half needs the Mermaid library, but the client bundle system has
  * no route for arbitrary package files: it serves only the declared client
  * bundle and image assets. The library is also far too large to load eagerly
@@ -17,9 +15,8 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 
 /**
- * Fixed assets the browser half may request. Each entry is an exact route with
- * one fixed file: no request input reaches the filesystem, so a later renderer
- * adds one allowlisted row instead of a second handler.
+ * Exact route/file pairs keep request input outside filesystem resolution.
+ * Additional renderers must extend this allowlist, not accept arbitrary paths.
  */
 const ASSETS = Object.freeze([
   Object.freeze({
@@ -50,15 +47,11 @@ const LOG_PREFIX = '[visual-renderer]';
 export const inject = ['webServer'];
 
 /**
- * Serve the pinned Mermaid runtime.
- *
- * The file is read lazily at the first request and cached for the lifetime of
- * this plugin row: reading several megabytes on every diagram would stall the
- * page, while the file cannot change without a package reinstall that restarts
- * the row. A read failure is cached as no failure state so a transient disk
- * error can recover on the next request.
+ * Read failures stay explicit so a broken install cannot masquerade as a valid
+ * executable response. The loader owns retryable byte caching for this row.
  * @param {import('node:http').IncomingMessage} request - browser request.
  * @param {import('node:http').ServerResponse} response - response to fill.
+ * @param {{ file: string, contentType: string }} asset - fixed allowlist entry.
  * @param {() => Promise<{ bytes: Buffer, etag: string }>} loadAsset - cached loader.
  * @param {{ error: (message: string, error?: unknown) => void }} logger - host logger.
  */
@@ -98,7 +91,7 @@ async function serveAsset(request, response, asset, loadAsset, logger) {
 }
 
 /**
- * Register the asset route for this plugin row.
+ * Context ownership removes the fixed route when this plugin row stops.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  */
 export function apply(ctx) {
@@ -113,6 +106,7 @@ export function apply(ctx) {
     /** @type {Promise<{ bytes: Buffer, etag: string }> | null} */
     let assetPromise = null;
 
+    // One promise coalesces reads for this row without sharing bytes across rows.
     const loadAsset = () => {
       if (assetPromise === null) {
         assetPromise = Promise.resolve()

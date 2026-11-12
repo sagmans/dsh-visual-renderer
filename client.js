@@ -20,12 +20,10 @@
  *   most intermediate prefixes are not valid diagram source. Rendering is
  *   debounced and a still-growing fence keeps its last complete drawing until
  *   the next valid revision, so the transcript does not flicker.
- * - The Mermaid library is several megabytes, so it is fetched by an injected
- *   script only when the first supported fence appears. The Host half serves it
- *   from the package itself; no CDN is contacted.
- * - Diagram source is model output, therefore untrusted. Mermaid runs in strict
- *   mode, and every produced SVG passes one sanitize-and-fit step before it
- *   enters the document.
+ * - The large Mermaid library loads only for a visible diagram, inside an
+ *   opaque realm. The Host serves the package asset without a CDN.
+ * - Strict Mermaid configuration is not the page-insertion boundary. Both
+ *   renderer paths must pass the parent sanitizer before entering shell DOM.
  */
 {
   // Lexical bindings isolate concatenated bundles and permit hot replacement.
@@ -64,7 +62,7 @@
   const VISIBILITY_ROOT_MARGIN = '240px 0px';
   /** Tallest a drawing may render before it scrolls inside its own body. */
   const MAX_VISUAL_HEIGHT_VH = 70;
-  /** Bounds that keep a hostile or accidental fence from freezing the page. */
+  /** Source budgets reduce parser pressure but cannot bound all browser CPU work. */
   const MAX_MERMAID_SOURCE_CHARS = 50_000;
   const MAX_SVG_SOURCE_CHARS = 200_000;
   const MAX_MERMAID_EDGES = 500;
@@ -439,7 +437,7 @@
 .dsh-visual-source-hidden { display: none !important; }
 `;
 
-  /** Translate one key against the package dictionary, falling back to English. */
+  /** English fallback keeps incomplete locales from exposing dictionary keys. */
   const translate = function translate(t, key) {
     const value = t(key);
     // A missing dictionary entry usually echoes the key; fall back to the
@@ -511,18 +509,6 @@
   };
 
   /**
-   * Reject Mermaid source whose leading directives change security settings.
-   *
-   * Mermaid applies `%%{init}%%` and frontmatter `config:` after the plugin's
-   * own `initialize`, so a fence could otherwise switch `securityLevel` to
-   * loose or enable HTML labels. There is no safe way to rewrite a partial
-   * directive, so such a fence stays source (fail closed). Only the prefix is
-   * inspected: directives are a leading construct, and a label far inside the
-   * diagram must not trip the guard.
-   * @param {string} source - diagram source.
-   * @throws {Error} when a security-sensitive key appears in the directive prefix.
-   */
-  /**
    * Decode the escape forms a directive can use to hide a key name.
    *
    * Mermaid parses init directives as JSON5/JS objects, so `\u004c` becomes
@@ -542,24 +528,13 @@
   };
 
   /**
-   * Reject Mermaid source whose leading directives change security settings.
-   *
-   * Mermaid applies `%%{init}%%` and frontmatter `config:` after the plugin's
-   * own `initialize`, so a fence could otherwise switch `securityLevel` to
-   * loose or raise the parser bounds. There is no safe way to rewrite a
-   * partial directive, so such a fence stays source (fail closed). The whole
-   * prefix before the diagram keyword is inspected: frontmatter has no line
-   * cap and a multi-line init directive is covered because the prefix ends at
-   * the first line that is not configuration.
+   * Whole-source inspection prevents trailing directives from changing policy.
+   * Labels containing protected keys are also refused: partial directives cannot
+   * be safely rewritten, so ambiguous source keeps the shell fallback.
    * @param {string} source - diagram source.
-   * @throws {Error} when a security-sensitive key appears in the directive prefix.
+   * @throws {Error} when a protected configuration key appears anywhere.
    */
   const assertSafeDirectives = function assertSafeDirectives(source) {
-    // The whole source is inspected: Mermaid also applies `%%{init}%%` lines
-    // that trail the diagram keyword, and a frontmatter key that looks like a
-    // directive can end a prefix scan early. A label that happens to contain
-    // one of these keys is refused too; that is the fail-closed trade for a
-    // control that cannot rewrite a partial directive.
     if (MERMAID_FORBIDDEN_CONFIG_PATTERN.test(normalizeDirectiveText(source.replace(/^\uFEFF/u, '')))) {
       throw new Error('visual-renderer: diagram tries to override Mermaid security settings');
     }
@@ -738,9 +713,8 @@
   /**
    * Whether a CSS value can resolve a resource outside the drawing.
    *
-   * Fragment-only `url(#id)` references stay because gradients and markers
-   * use them; any other URL, an @import, or an executable construct rejects
-   * the value.
+   * Gradients and markers need fragment paints. This accepts fragment syntax,
+   * not target ownership; remote URLs and executable constructs fail closed.
    * @param {string} value - raw CSS value.
    * @returns {boolean} true when the value is not safe.
    */
@@ -766,7 +740,7 @@
   };
 
   /**
-   * Split a CSS declaration list without breaking on quoted semicolons.
+   * Quotes and nested functions must not split a painter value into declarations.
    * @param {string} text - declaration text.
    * @returns {string[]} declarations.
    */
@@ -894,7 +868,7 @@
     return svg;
   };
 
-  /** Ensure the owned stylesheet exists exactly once. */
+  /** Reuse the instance style so repeated activation does not multiply rules. */
   const installStyle = function installStyle(runtime) {
     if (runtime.styleElement !== null && runtime.styleElement.isConnected) return;
     runtime.styleElement = document.createElement('style');
@@ -903,7 +877,7 @@
     document.head.append(runtime.styleElement);
   };
 
-  /** Remove the owned stylesheet. */
+  /** Release only this instance's style, never a shell or sibling stylesheet. */
   const removeStyle = function removeStyle(runtime) {
     if (runtime.styleElement !== null && runtime.styleElement.isConnected) runtime.styleElement.remove();
     runtime.styleElement = null;
@@ -1122,7 +1096,7 @@
   };
 
   /**
-   * Read the host's font stack for diagram text.
+   * The shell font keeps diagram labels consistent without external font loads.
    * @returns {string} computed font family, or the fallback stack.
    */
   const readHostFontFamily = function readHostFontFamily() {
@@ -1146,7 +1120,7 @@
   };
 
   /**
-   * Resolve the SVG a `mermaid` fence describes.
+   * The realm contains library effects; its output still needs parent sanitation.
    * @param {string} source - diagram source.
    * @param {{ themeVariables: Record<string, string>, fontFamily: string }} context - theme context.
    * @param {{ load: (logFailure: Function) => Promise<any> }} library - lazy script library.
@@ -1312,10 +1286,9 @@
 
     /** @type {Readonly<object> | null} renderer currently drawn */
     let renderer = null;
-    /** Whether the host source is shown instead of the drawing. */
     let sourceShown = false;
 
-    /** Apply the one visibility rule to the host nodes this view supersedes. */
+    /** One visibility owner keeps the source and banner in the same state. */
     function applyHostVisibility() {
       const banner = wrapper.querySelector(CODE_BLOCK_BANNER_SELECTOR);
       const content = wrapper.querySelector(CODE_BLOCK_CONTENT_SELECTOR);
@@ -1323,7 +1296,7 @@
       if (content !== null) content.classList.toggle(SOURCE_HIDDEN_CLASS, !sourceShown);
     }
 
-    /** Re-apply toolbar copy for the current locale and state. */
+    /** Keep accessible state and visible copy consistent after either changes. */
     function applyLabels() {
       label.textContent = translate(t, renderer?.labelKey ?? 'label.mermaid');
       toggle.textContent = translate(t, sourceShown ? 'action.diagram' : 'action.source');
@@ -1338,7 +1311,7 @@
     });
 
     return {
-      /** Show a finalized drawing for one renderer. */
+      /** A successful replacement preserves the reader's source/diagram choice. */
       mount(nextRenderer, svg) {
         renderer = nextRenderer;
         canvas.replaceChildren(svg);
@@ -1349,7 +1322,7 @@
         if (!figure.isConnected) wrapper.append(figure);
         applyHostVisibility();
       },
-      /** Remove the figure and restore the host source. */
+      /** The shell source is the fallback whenever this view has no drawing. */
       destroy() {
         figure.remove();
         // Without a drawing the host source must be visible: `sourceShown`
@@ -1358,7 +1331,7 @@
         sourceShown = true;
         applyHostVisibility();
       },
-      /** Whether the figure is still in the document. */
+      /** React can remove the figure without changing the controller cache. */
       isMounted() {
         return figure.isConnected;
       },
@@ -1366,7 +1339,7 @@
       syncHostVisibility() {
         if (figure.isConnected) applyHostVisibility();
       },
-      /** Re-apply toolbar copy after a locale switch. */
+      /** Locale changes relabel controls without changing the drawing or user choice. */
       refreshLabels() {
         if (!figure.isConnected) return;
         applyLabels();
@@ -1419,7 +1392,7 @@
       this.renderedLanguage = null;
     }
 
-    /** Forget the drawing and restore the host source. */
+    /** Centralized clearing invalidates late output before restoring the fallback. */
     clearFigure() {
       this.invalidateDrawing();
       if (this.view !== null) {
@@ -1651,12 +1624,12 @@
       }
     }
 
-    /** Whether an element is inside the plugin's own figure DOM. */
+    /** Owned output must not feed back into transcript mutation handling. */
     owned(element) {
       return element.closest(`[${FIGURE_ATTRIBUTE}]`) !== null;
     }
 
-    /** Resolve the code block wrapper that owns a mutation target, if any. */
+    /** Text-node mutations need the same wrapper ownership as element changes. */
     wrapperOf(node) {
       const element = node instanceof Element ? node : node.parentElement;
       if (element === null || element === undefined || this.owned(element)) return null;
@@ -1664,7 +1637,7 @@
       return element.closest(CODE_BLOCK_WRAPPER_SELECTOR);
     }
 
-    /** Resolve every wrapper in a subtree that a mutation added. */
+    /** Transcript scoping excludes other surfaces that reuse the Markdown component. */
     wrappersWithin(node) {
       const element = node instanceof Element ? node : null;
       if (element === null || this.owned(element)) return [];
@@ -1674,7 +1647,7 @@
       return found.filter((wrapper) => wrapper.closest(CHAT_FLOW_SELECTOR) !== null);
     }
 
-    /** Drop controllers whose wrapper left the document. */
+    /** Windowed transcript removal must release timers and registry references. */
     pruneDisconnected() {
       for (const [wrapper, controller] of this.controllers) {
         if (wrapper.isConnected) continue;
@@ -1684,7 +1657,7 @@
     }
 
     /**
-     * Attach a controller to one wrapper and observe its visibility.
+     * One registry entry per wrapper keeps visibility and render ownership aligned.
      * @param {Element} wrapper - `.md-code-block` wrapper.
      */
     attach(wrapper) {
@@ -1700,7 +1673,7 @@
       controller.scheduleRender();
     }
 
-    /** Handle one wrapper that a mutation touched. */
+    /** Reuse the controller so streaming mutations retain revision and view state. */
     touch(wrapper) {
       // Only transcript code blocks are in scope: the same Markdown component
       // renders in other surfaces (sidebar previews), and enhancing those is
@@ -1714,7 +1687,7 @@
       if (wrapper.querySelector(CODE_BLOCK_CONTENT_SELECTOR) !== null) this.attach(wrapper);
     }
 
-    /** Route transcript mutations to the affected wrappers only. */
+    /** Targeted routing avoids rescanning the transcript on every streamed delta. */
     onMutations(records) {
       if (this.disposed) return;
       for (const record of records) {
@@ -1744,7 +1717,7 @@
       }
     }
 
-    /** Re-render every drawn figure after a theme change. */
+    /** Coalesce palette events because every drawing shares one theme snapshot. */
     refreshTheme() {
       if (this.disposed || this.refreshTimer !== 0) return;
       this.refreshTimer = globalThis.setTimeout(() => {
@@ -1754,7 +1727,7 @@
       }, REFRESH_DEBOUNCE_MS);
     }
 
-    /** Re-apply toolbar copy after a locale switch. */
+    /** Locale changes relabel controls without changing the drawing or user choice. */
     refreshLabels() {
       for (const controller of this.controllers.values()) controller.refreshLabels();
     }
@@ -1783,8 +1756,8 @@
   const inject = ['locale', 'theme'];
 
   /**
-   * Register dictionaries, start the transcript enhancer, and follow theme
-   * and locale changes through their services.
+   * Context effects tie subscriptions, figures, and the realm to one application
+   * lifetime, so disablement restores the shell instead of leaving owned state.
    * @param {import('@deepseek-ai/cordis').Context} ctx - client root context.
    */
   const apply = function apply(ctx, runtime) {
@@ -1813,8 +1786,8 @@
   globalThis.__ModuleLoader__.load({
     id: '@local/visual-renderer',
     factory() {
-      // A factory invocation owns its counters and stylesheet, just as before;
-      // reusable policy and methods stay isolated in the surrounding block.
+      // Factory-local state prevents replacement instances from sharing counters
+      // or removing each other's stylesheet references.
       const runtime = { styleElement: null, mermaidRenderId: 0 };
       return { inject: [...inject], apply: (ctx) => apply(ctx, runtime) };
     },

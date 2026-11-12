@@ -37,66 +37,16 @@ renderer, the block stays source rather than being guessed from its content.
 
 ## Security
 
-Diagram source is model output, so it is untrusted input:
+Diagram source is untrusted input. Mermaid runs in an opaque sandbox with strict
+configuration. Both Mermaid output and authored SVG pass a parent sanitizer.
+Unsupported elements, unsafe styles, and non-fragment URLs do not survive.
+Source that overrides protected Mermaid configuration stays visible as source.
+The library comes from the local package, not a CDN.
 
-- Mermaid runs in strict security mode inside an opaque sandboxed iframe. A
-  deny-by-default content policy blocks image, font, connection, and
-  nested-frame loads. Only the fixed package script and trusted bootstrap carry
-  script nonces. Diagram source travels through bounded messages, never through
-  frame HTML.
-- The parent accepts replies only from its frame and private channel. Timeouts
-  destroy the rendering realm. Returned SVG still passes the parent sanitizer.
-- Mermaid directives cannot change security settings: source that tries to set
-  `securityLevel`, `htmlLabels`, `startOnLoad`, `maxTextSize`, `maxEdges`,
-  `themeCSS` or `suppressErrorRendering` through `%%{init}%%` or frontmatter
-  `config:` stays source, including escaped spellings of those keys.
-- Any `svg` fence is scrubbed in an inert document before page insertion. Only
-  SVG-namespace elements and explicitly allowed drawing attributes survive.
-  XHTML, scripts, animation, event handlers, `foreignObject`, embedded images,
-  and non-fragment URLs are removed. The same boundary checks Mermaid output.
-- Styles are contained. Authored `svg` fences keep no `<style>` element and no
-  `class` attribute, and their inline styles keep only painter properties such
-  as fill, stroke and font; layout properties (`position`, `inset`, `z-index`,
-  ...) are removed, and paint containment on the figure body is the backstop
-  against an overlay. CSS escapes are decoded before a URL check, and every
-  `url()` reference must point to a fragment inside the same drawing. Mermaid's
-  generated stylesheet is parsed with the browser's CSS parser and rebuilt rule
-  by rule: only rules scoped to the rendered svg id survive, and any rule that
-  could load a remote resource is dropped.
-- Source limits are 50,000 Mermaid characters and 200,000 SVG characters. Parser
-  limits cannot be overridden by source. Oversized or unsupported input stays
-  source; these limits are not a guarantee against all browser CPU pressure.
-- No CDN is used. The library request targets the package's fixed local asset
-  route; the frame policy blocks resource loads requested by diagram content.
-
-## How it works
-
-| Half                  | Role                                                                                                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.js` (Host)     | Serves the pinned Mermaid browser build from one fixed, read-only route (`/dsh-visual-assets/mermaid.min.js`) with a revalidating ETag cache. The route serves exactly one dependency asset and exposes no session state. |
-| `client.js` (Browser) | Observes the Conversation transcript, adds a figure to each supported code block, and loads Mermaid on the first diagram.                                                                                                 |
-
-The client bundle system serves only declared client bundles and image assets,
-so the library is delivered by the Host route instead of being loaded eagerly
-with the plugin: most sessions never draw a diagram.
-
-The browser half never replaces a host component. It appends one owned
-`<figure>` as the last child of the code block wrapper and hides the host's
-banner and source with a class, which keeps React reconciliation and transcript
-windowing intact.
-
-## Pinned dependency
-
-`mermaid` **12.2.0** is an exact dependency. The committed lockfile pins its
-transitive dependencies and integrity hashes. Install with
-`pnpm install --frozen-lockfile --ignore-scripts`; package installation must not
-run dependency scripts. The workspace policy requires a seven-day minimum
-release age for newly resolved packages.
-
-The served UMD file is byte-identical to the original bundled browser build. Its
-SHA-256 is `a8a6a6f805b074a8261a2825c86f99c8054acb3b35f50bb7e24a4f9f2c3c3b9f`.
-The native validation gate checks this hash. Mermaid uses the MIT license; its
-notice is retained in `vendor/LICENSE.mermaid`.
+The source bounds and sandbox reduce risk but do not prevent all browser CPU
+pressure. The
+[security reference](https://github.com/sagmans/dsh-visual-renderer/blob/main/docs/SECURITY.md)
+explains the boundaries and their limits.
 
 ## Limits
 
@@ -127,22 +77,7 @@ their registration.
 
 ## Development
 
-After cloning, run `scripts/setup-hooks`. This installs the repository's hooks
-without changing Git configuration. It refuses to replace custom hooks.
-
-```sh
-scripts/setup-hooks
-node scripts/check.mjs
-node scripts/check.mjs smoke
-```
-
-Install Gitleaks, markdownlint-cli2, Semgrep, Lizard, and OSV Scanner before
-contributing. Missing tools and failed checks block the relevant hook. Commits
-must be signed, signed off, and use a Conventional Commit subject with a purpose
-body. Never bypass hooks with `--no-verify`.
-
-The native gate checks source syntax and hygiene, package and locale shape,
-privacy patterns, distribution exports, and module registration. Generic push
-checks also scan signatures, secrets, dependencies, source security, and
-function complexity. Exercise the installed plugin in a local Web UI before
-delivery; module registration alone does not prove its visible behavior.
+For setup, validation, local hooks, and browser proof, read
+[Development](https://github.com/sagmans/dsh-visual-renderer/blob/main/docs/DEVELOPMENT.md).
+For the Host/browser split and rendering lifecycle, read
+[Architecture](https://github.com/sagmans/dsh-visual-renderer/blob/main/docs/ARCHITECTURE.md).
