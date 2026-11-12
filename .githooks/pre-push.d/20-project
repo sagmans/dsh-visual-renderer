@@ -1,0 +1,26 @@
+#!/bin/sh
+# Full validation belongs to each distinct pushed tip, not each intermediate commit.
+set -eu
+# shellcheck source-path=SCRIPTDIR source=../lib/helpers.sh
+. "${HOOK_HELPERS:?run from installed hooks}"
+CHECK_TIMEOUT_SECONDS=180
+INSTALL_TIMEOUT_SECONDS=120
+
+# A detached tip needs its own frozen offline dependencies, never a clone's install.
+verify_tip() {
+	if [ ! -d node_modules ]; then
+		run_step 'offline frozen dependencies' "$INSTALL_TIMEOUT_SECONDS" pnpm install --frozen-lockfile --ignore-scripts --offline || return 1
+	fi
+	run_step 'full source distribution and smoke checks' "$CHECK_TIMEOUT_SECONDS" node scripts/check.mjs
+}
+pushed_shas <"${HOOK_STDIN_FILE:?missing push refs}" >/dev/null || exit 1
+tips=''
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+	[ -n "$local_sha" ] || continue
+	is_null_oid "$local_sha" && continue
+	case " $tips " in *" $local_sha "*) continue ;; esac
+	tips="$tips $local_sha"
+done <"$HOOK_STDIN_FILE"
+for tip in $tips; do
+	at_sha "$tip" verify_tip || exit 1
+done

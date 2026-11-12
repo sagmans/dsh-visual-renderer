@@ -1,0 +1,4 @@
+# Newly published packages must age before they enter a reproducible install.
+minimumReleaseAge: 10080
+# Dependency code may not run install scripts implicitly.
+strictDepBuilds: true

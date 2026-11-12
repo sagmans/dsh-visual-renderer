@@ -1,0 +1,7 @@
+# Insert the plugin row into the profile. The same package carries both halves:
+# the Host half serves the pinned Mermaid runtime, the Client half renders the
+# transcript fences. One row keeps Host asset lifetime and browser behavior tied
+# to one enablement switch, so disabling the plugin removes both together.
+- insert:
+    - id: visual-renderer
+      name: '@local/visual-renderer'

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Diagram preview icon">
+  <defs>
+    <linearGradient id="vr-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f6feb"/>
+      <stop offset="1" stop-color="#1f3f8f"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#vr-bg)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round">
+    <path d="M20 20h8a6 6 0 0 1 6 6v4"/>
+    <path d="M42 22h-4"/>
+    <path d="M22 44h8a6 6 0 0 0 6-6v-4"/>
+    <path d="M40 40h4"/>
+  </g>
+  <g fill="#ffffff">
+    <rect x="12" y="12" width="16" height="12" rx="4"/>
+    <rect x="36" y="12" width="16" height="12" rx="4"/>
+    <rect x="12" y="40" width="16" height="12" rx="4"/>
+    <rect x="36" y="40" width="16" height="12" rx="4"/>
+  </g>
+  <g fill="#1f3f8f">
+    <path d="M34 24l4 0-1.6 2.4H33z"/>
+    <path d="M34 42l4 0-1.6-2.4H33z"/>
+    <path d="M36 26l3 6-3 0-2.4-6z"/>
+    <path d="M28 34l-3 6 3 0 2.4-6z"/>
+  </g>
+</svg>

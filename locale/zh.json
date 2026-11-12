@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "对话图表",
+    "description": "在会话记录中直接渲染 Mermaid 图表和 SVG 图形，无需查看源代码。"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Transcript Visuals",
+    "description": "Render Mermaid diagrams and SVG graphics inside session transcripts instead of raw code."
+  }
+}
