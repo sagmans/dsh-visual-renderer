@@ -23,11 +23,14 @@ Run these unchanged gates from the repository root:
 node scripts/check.mjs
 node scripts/check.mjs smoke
 node scripts/check.mjs staged
+node scripts/check.mjs pnpm-floor
 markdownlint-cli2 --config .githooks/lib/markdownlint.jsonc AGENTS.md README.md 'docs/*.md'
 ```
 
 [The native gate](../scripts/check.mjs) owns the exact checks and tool arguments.
-It uses Node.js, Deno, and shfmt without installing packages or rewriting source.
+It uses Node.js, pnpm, Deno, shfmt, and shellcheck at the versions pinned in
+[mise.toml](../mise.toml), failing closed when a required tool is missing or
+below its floor. It does not install packages or rewrite source.
 Full and smoke modes inspect the working tree and repository hook directories.
 Staged mode reads the selected index, not unrelated working-tree changes.
 An empty index produces no staged-source coverage.
@@ -49,8 +52,11 @@ The generic hook library owns tool requirements and scan selection.
 - Push gates scan the applicable source, dependency, and workflow changes.
   They include Semgrep, Lizard, and OSV Scanner where applicable.
 - [The project push wrapper](../.githooks/pre-push.d/20-project) runs native
-  validation once per distinct non-deleted pushed tip.
-  Missing modules require a frozen, offline, script-free install at that tip.
+  validation and
+  `pnpm audit --audit-level high --config.offline=false --config.audit=true`
+  once per distinct non-deleted pushed tip.
+  Missing modules verify the pinned pnpm floor (`pnpm-floor`), then run a
+  frozen, offline, script-free install at that tip.
   A cache miss blocks the gate. Existing modules remain intact.
 
 Keep generic entrypoints and `lib/` synchronized from the shared template.

@@ -5,13 +5,16 @@ set -eu
 . "${HOOK_HELPERS:?run from installed hooks}"
 CHECK_TIMEOUT_SECONDS=180
 INSTALL_TIMEOUT_SECONDS=120
+NETWORK_TIMEOUT_SECONDS=120
 
 # A detached tip needs its own frozen offline dependencies, never a clone's install.
 verify_tip() {
 	if [ ! -d node_modules ]; then
+		run_step 'pnpm version floor' "$CHECK_TIMEOUT_SECONDS" node scripts/check.mjs pnpm-floor || return 1
 		run_step 'offline frozen dependencies' "$INSTALL_TIMEOUT_SECONDS" pnpm install --frozen-lockfile --ignore-scripts --offline || return 1
 	fi
-	run_step 'full source distribution and smoke checks' "$CHECK_TIMEOUT_SECONDS" node scripts/check.mjs
+	run_step 'full source distribution and smoke checks' "$CHECK_TIMEOUT_SECONDS" node scripts/check.mjs || return 1
+	run_step 'pnpm audit' "$NETWORK_TIMEOUT_SECONDS" pnpm audit --audit-level high --config.offline=false --config.audit=true
 }
 pushed_shas <"${HOOK_STDIN_FILE:?missing push refs}" >/dev/null || exit 1
 tips=''
